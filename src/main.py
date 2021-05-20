@@ -1,5 +1,6 @@
-import apache_beam as beam
+import re
 import pandas as pd
+import apache_beam as beam
 from apache_beam.io import ReadFromText
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam.transforms.core import Map
@@ -42,6 +43,15 @@ def key_uf(element):
         key, element
     )
 
+def cases_dengue(element):
+    """Receives a tuple in the format ('RS', [{}, {}]
+    and returns a tuple in the format ('RS-2014-12', 8.0)"""
+    uf, registros = element
+    for record in registros:
+        if bool(re.search(r'\d', record['casos'])):
+            yield (f"{uf}-{record['ano-mes']}", float(record['casos']))
+        else:
+            yield (f"{uf}-{record['ano-mes']}", 0.0)
 dengue = (
     pipeline
     | "Leitura do dataset de dengue" >> ReadFromText(
@@ -51,6 +61,8 @@ dengue = (
     | "Create column year-month" >> beam.Map(date_year_month)
     | "Create the key by state" >> beam.Map(key_uf)
     | "Group by state" >> beam.GroupByKey()
+    | "Descompact cases of dengue" >> beam.FlatMap(cases_dengue)
+    | "Sum of dengue cases" >> beam.CombinePerKey(sum)
     | "results: " >> beam.Map(print)
 )
 
