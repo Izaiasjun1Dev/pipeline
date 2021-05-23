@@ -52,10 +52,47 @@ def cases_dengue(element):
             yield (f"{uf}-{record['ano-mes']}", float(record['casos']))
         else:
             yield (f"{uf}-{record['ano-mes']}", 0.0)
+
+def key_uf_year_month(element):
+    """Receives a list of elements and returns a 
+    tuple containing a key and a value
+    ('UF-YAER-MONTH', 1.3)"""
+    date, mm, uf = element
+    yaer_month = '-'.join(date.split('-')[:2])
+    key = f'{uf}-{yaer_month}'
+
+    if float(mm) < 0:
+        mm = 0.0
+    else:
+        mm = float(mm)
+    return key, mm
+
+def round_results(elements):
+    """Rounding rain results
+    Receives a tuple and returns a tuple with rounded values
+    """
+    key, mm = elements
+    return (key, round(mm, 1))
+
+def filter_fields(element):
+    """
+    Removes tuples where it only has a specific 
+    value for example rain: [''], dengue: 85.0
+    """
+    key, dados = element
+
+    if all([
+        dados['chuvas'],
+        dados['dengue']
+    ]):
+        return True
+    
+    return False
+
 dengue = (
     pipeline
-    | "Leitura do dataset de dengue" >> ReadFromText(
-        './basedb/casos_dengue.txt', skip_header_lines=1)
+    | "Reading the dengue dataset" >> ReadFromText(
+        './basedb/sample_casos_dengue.txt', skip_header_lines=1)
     | "text to list" >> beam.Map(text_to_list)
     | "Of list to dictionary" >> beam.Map(list_to_dictionary, columns)
     | "Create column year-month" >> beam.Map(date_year_month)
@@ -63,7 +100,30 @@ dengue = (
     | "Group by state" >> beam.GroupByKey()
     | "Descompact cases of dengue" >> beam.FlatMap(cases_dengue)
     | "Sum of dengue cases" >> beam.CombinePerKey(sum)
-    | "results: " >> beam.Map(print)
+    #| "results: " >> beam.Map(print)
+)
+
+
+rain = (
+    pipeline
+    | "Reading the rainfall dataset" >>
+        ReadFromText('./basedb/sample_chuvas.csv', skip_header_lines=1)
+    | "Of text to list (rainfall)" >> beam.Map(text_to_list, delimeter=',')
+    | "Create key uf-ano-mes" >> beam.Map(key_uf_year_month)
+    | "Sum of rainfall cases" >> beam.CombinePerKey(sum)
+    | "Rounding rain results" >> beam.Map(round_results)
+    #| "Show rain results" >> beam.Map(print)
+)
+
+results = (
+    #(rain, dengue)
+    #| "Join at pcollections dengue and rainfall's" >> beam.Flatten()
+    #| "Agroup" >> beam.GroupByKey()
+    #| "Show results finaly" >> beam.Map(print)
+    ({'chuvas': rain, 'dengue': dengue})
+    | "Merge at results" >> beam.CoGroupByKey()
+    | "Filter data" >> beam.Filter(filter_fields)
+    | "Show results finaly" >> beam.Map(print)
 )
 
 pipeline.run()
