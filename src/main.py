@@ -1,4 +1,5 @@
 import re
+from apache_beam.io.textio import WriteToText
 import pandas as pd
 import apache_beam as beam
 from apache_beam.io import ReadFromText
@@ -89,10 +90,28 @@ def filter_fields(element):
     
     return False
 
+def descompct_element(element):
+    """
+    Receives at tuple and return one tuple in the format
+    ('CE', 2015, 11 0.4, 21.0)"""
+
+    key, dados = element
+    rain = dados['chuvas'][0]
+    dengue = dados['dengue'][0]
+    uf, yaer, month = key.split('-')
+
+    return uf, yaer, month, str(dengue), str(rain)
+
+
+def buil_csv(element, delimeter=';'):
+    """Reaceives at tuple and return one string in the format 
+    'CE;2015;11;0.4;21.0' """
+    return f'{delimeter}'.join(element)
+
 dengue = (
     pipeline
     | "Reading the dengue dataset" >> ReadFromText(
-        './basedb/sample_casos_dengue.txt', skip_header_lines=1)
+        './basedb/casos_dengue.txt', skip_header_lines=1)
     | "text to list" >> beam.Map(text_to_list)
     | "Of list to dictionary" >> beam.Map(list_to_dictionary, columns)
     | "Create column year-month" >> beam.Map(date_year_month)
@@ -107,7 +126,7 @@ dengue = (
 rain = (
     pipeline
     | "Reading the rainfall dataset" >>
-        ReadFromText('./basedb/sample_chuvas.csv', skip_header_lines=1)
+        ReadFromText('./basedb/chuvas.csv', skip_header_lines=1)
     | "Of text to list (rainfall)" >> beam.Map(text_to_list, delimeter=',')
     | "Create key uf-ano-mes" >> beam.Map(key_uf_year_month)
     | "Sum of rainfall cases" >> beam.CombinePerKey(sum)
@@ -123,7 +142,17 @@ results = (
     ({'chuvas': rain, 'dengue': dengue})
     | "Merge at results" >> beam.CoGroupByKey()
     | "Filter data" >> beam.Filter(filter_fields)
-    | "Show results finaly" >> beam.Map(print)
+    | "Descompact element" >> beam.Map(descompct_element)
+    | "Build at a csv" >> beam.Map(buil_csv)
+   # | "Show results finaly" >> beam.Map(print)
+)
+
+header = 'UF;YEAR;MONTH;RAINFALL;DENGUE'
+
+results | "Build from csv" >> WriteToText(
+    './basedb/resultado', 
+    file_name_suffix='.csv', 
+    header=header
 )
 
 pipeline.run()
